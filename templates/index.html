@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Распознавание лиц с OpenCV</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            text-align: center;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        #video {
+            display: none;
+        }
+        #output {
+            max-width: 100%;
+            height: auto;
+            border: 2px solid #4CAF50;
+            border-radius: 5px;
+        }
+        #faceCount {
+            margin-top: 10px;
+            font-size: 18px;
+            color: #4CAF50;
+        }
+        .footer {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #777;
+        }
+        #error {
+            color: red;
+            margin-top: 10px;
+        }
+        .switch {
+            margin-bottom: 10px;
+        }
+        .switch label {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Распознавание лиц в реальном времени</h1>
+        <div class="switch">
+            <label><input type="radio" name="facingMode" value="environment" checked> Задняя камера</label>
+            <label><input type="radio" name="facingMode" value="user"> Фронтальная камера</label>
+        </div>
+        <video id="video" autoplay playsinline></video>
+        <img id="output" alt="Обработанное изображение">
+        <div id="faceCount">Лиц обнаружено: 0</div>
+        <div id="error"></div>
+        <div class="footer">Дипломная работа: использование OpenCV</div>
+    </div>
+
+    <script>
+        const socket = io();
+        const video = document.getElementById('video');
+        const output = document.getElementById('output');
+        const faceCountDiv = document.getElementById('faceCount');
+        const errorDiv = document.getElementById('error');
+        const canvas = document.createElement('canvas');
+        const facingModeSwitch = document.getElementsByName('facingMode');
+
+        let facingMode = 'environment';
+        let stream = null;
+
+        // Запуск камеры телефона
+        function startPhoneCamera() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                errorDiv.textContent = "Ваш браузер не поддерживает доступ к камере.";
+                console.error("getUserMedia не поддерживается");
+                return;
+            }
+
+            console.log("Попытка получить доступ к камере...");
+            errorDiv.textContent = "Запрашиваем доступ к камере...";
+
+            // Останавливаем текущий поток, если он существует
+            stopPhoneCamera();
+
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode } })
+                .then(newStream => {
+                    console.log("Камера успешно подключена");
+                    errorDiv.textContent = "Камера успешно подключена.";
+                    stream = newStream;
+                    video.srcObject = stream;
+                    sendFrame();
+                })
+                .catch(err => {
+                    console.error('Ошибка доступа к камере:', err);
+                    errorDiv.textContent = `Ошибка доступа к камере: ${err.message}`;
+                });
+        }
+
+        // Остановка камеры телефона
+        function stopPhoneCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+                video.srcObject = null;
+            }
+        }
+
+        // Переключение камеры
+        facingModeSwitch.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                facingMode = e.target.value;
+                startPhoneCamera();
+            });
+        });
+
+        // Отправка кадров на сервер
+        function sendFrame() {
+            if (!stream) {
+                return;
+            }
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+
+            socket.emit('frame', dataUrl);
+            setTimeout(sendFrame, 100); // Увеличиваем частоту до 10 кадров в секунду
+        }
+
+        // Получение обработанного изображения
+        socket.on('response_frame', data => {
+            output.src = data.image;
+            faceCountDiv.textContent = `Лиц обнаружено: ${data.count}`;
+        });
+
+        // Запускаем камеру при загрузке страницы
+        startPhoneCamera();
+    </script>
+</body>
+</html>
